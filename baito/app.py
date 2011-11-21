@@ -18,11 +18,16 @@ class BaitoRequest(Request):
         self.session = environ.get('beaker.session', None)
 
     def url_for(self, name, value=None, **kwargs):
-        module, _, name = name.rpartition(':')
+        module, _, name = name.rpartition('.')
         relative_url = not module
-        module = module or self.module
-        if module:
-            kwargs['module'] = module
+
+        if name[0] == '!':
+            relative_url = False
+            name = name[1:]
+        else:
+            module = module or self.module
+            if module:
+                kwargs['module'] = module
 
         if value is not None:
             route = self.url_generator.mapper._routenames.get(name)
