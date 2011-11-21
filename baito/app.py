@@ -147,16 +147,14 @@ class App(object):
             return self
 
     def add_module(self, module):
-        module.app = self
-        module.propagate_routes(self.url_map)
+        module.attach(self)
 
 
 class Module(object):
     def __init__(self, name):
         self.name = name
-        self.app = None
-
         self.rules = []
+        self.renderers = []
 
     def expose(self, rule, name=None, **kwargs):
         def decorator(func):
@@ -168,6 +166,20 @@ class Module(object):
 
         return decorator
 
-    def propagate_routes(self, mapper):
+    def renderer(self, name, **kwargs):
+        def inner(func):
+            @wraps(func)
+            def inner2(request, *iargs, **ikwargs):
+                result = func(request, *iargs, **ikwargs)
+                kwargs.update(result)
+                return self.app.render(request, name, kwargs)
+
+            return inner2
+
+        return inner
+
+    def attach(self, app):
+        self.app = app
+
         for rname, rule, kwargs in self.rules:
-            mapper.connect(rname, rule, **kwargs)
+            app.url_map.connect(rname, rule, **kwargs)
