@@ -43,8 +43,8 @@ class BaitoRequest(Request):
     def get_flashed_messages(self):
         return self.session.pop('flash_messages', [])
 
-    def render(self, name, _rtype='default', **kwargs):
-        return self.app.render(self, name, _rtype, kwargs)
+    def render(self, name, **kwargs):
+        return self.app.render(self, name, kwargs)
 
     def redirect(self, url):
         return HTTPFound(location=url)
@@ -62,10 +62,14 @@ class App(object):
         self.Request = BaitoRequest
         self.Response = Response
 
-        self.renderers = {}
+        self._renderer = None
         self.session_opts = None
 
         self.on_route_not_found_handler = None
+
+    def connect(self, name, rule, **kwargs):
+        kwargs['module'] = None
+        self.url_map.connect(name, rule, **kwargs)
 
     def expose(self, rule, name=None, **kwargs):
         def decorator(func):
@@ -104,18 +108,18 @@ class App(object):
         httpd = make_server(host, port, self)
         httpd.serve_forever()
 
-    def set_renderer(self, renderer, rtype='default'):
-        self.renderers[rtype] = renderer
+    def set_renderer(self, renderer):
+        self._renderer = renderer
 
     def on_route_not_found(self, wsgi_handler):
         self.on_route_not_found_handler = wsgi_handler
 
-    def render(self, request, name, rtype, result, *args, **kwargs):
+    def render(self, request, name, result):
         result.setdefault('url_for', request.url_for)
         result.setdefault('request', request)
         result.setdefault('get_flashed_messages', request.get_flashed_messages)
 
-        response = self.renderers[rtype](name, result, *args, **kwargs)
+        response = self._renderer(self.Response, name, result)
 
         for k, v in result.iteritems():
             if k.startswith('http_'):
@@ -123,12 +127,13 @@ class App(object):
 
         return response
 
-    def renderer(self, name, rtype='default', *args, **kwargs):
+    def renderer(self, name, **kwargs):
         def inner(func):
             @wraps(func)
             def inner2(request, *iargs, **ikwargs):
                 result = func(request, *iargs, **ikwargs)
-                return self.render(request, name, rtype, result, *args, **kwargs)
+                kwargs.update(result)
+                return self.render(request, name, kwargs)
 
             return inner2
 
