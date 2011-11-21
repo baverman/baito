@@ -9,6 +9,8 @@ from beaker.middleware import SessionMiddleware
 from wsgiref.simple_server import make_server
 from functools import wraps
 
+from .utils import get_from_module
+
 class BaitoRequest(Request):
     def __init__(self, app, environ):
         Request.__init__(self, environ)
@@ -152,6 +154,9 @@ class App(object):
             return self
 
     def add_module(self, module):
+        if isinstance(module, str):
+            module = get_from_module(module, 2)
+
         module.attach(self)
 
 
