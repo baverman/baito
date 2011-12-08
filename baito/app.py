@@ -23,6 +23,9 @@ class BaitoRequest(Request):
         module, _, name = name.rpartition('.')
         relative_url = not module
 
+        if kwargs.get('back', False) is True:
+            kwargs['back'] = self.path_qs
+
         if name[0] == '!':
             relative_url = False
             name = name[1:]
@@ -61,7 +64,6 @@ class BaitoRequest(Request):
 
     def flash(self, message, category='error'):
         self.session.setdefault('flash_messages', []).append((message, category))
-
 
 class App(object):
     def __init__(self):
@@ -106,7 +108,7 @@ class App(object):
         except HTTPException, e:
             response = e
 
-        if request.session:
+        if request.session is not None:
             request.session.save()
 
         return response(environ, start_response)
@@ -139,8 +141,11 @@ class App(object):
             @wraps(func)
             def inner2(request, *iargs, **ikwargs):
                 result = func(request, *iargs, **ikwargs)
-                kwargs.update(result)
-                return self.render(request, name, kwargs)
+                if isinstance(result, Response):
+                    return result
+                args = kwargs.copy()
+                args.update(result)
+                return self.render(request, name, args)
 
             return inner2
 
@@ -161,17 +166,23 @@ class App(object):
 
 
 class Module(object):
-    def __init__(self, name):
+    def __init__(self, name, prefix=None):
         self.name = name
         self.rules = []
         self.renderers = []
+        self.prefix = prefix
 
     def expose(self, rule, name=None, **kwargs):
         def decorator(func):
+            if rule[0] != '/':
+                rrule = self.prefix + rule
+            else:
+                rrule = rule
+
             kwargs['endpoint'] = func
             kwargs['module'] = self.name
             rname = name or func.__name__
-            self.rules.append((rname, rule, kwargs))
+            self.rules.append((rname, rrule, kwargs))
             return func
 
         return decorator
@@ -181,8 +192,11 @@ class Module(object):
             @wraps(func)
             def inner2(request, *iargs, **ikwargs):
                 result = func(request, *iargs, **ikwargs)
-                kwargs.update(result)
-                return self.app.render(request, name, kwargs)
+                if isinstance(result, Response):
+                    return result
+                args = kwargs.copy()
+                args.update(result)
+                return self.app.render(request, name, args)
 
             return inner2
 
