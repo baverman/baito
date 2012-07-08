@@ -11,6 +11,13 @@ from functools import wraps
 
 from .utils import get_from_module
 
+def get_full_name(module, name):
+    if module:
+        return module + '.' + name
+    else:
+        return name
+
+
 class BaitoRequest(Request):
     def __init__(self, app, environ):
         Request.__init__(self, environ)
@@ -21,6 +28,7 @@ class BaitoRequest(Request):
 
     def url_for(self, name, value=None, **kwargs):
         module, _, name = name.rpartition('.')
+        shortname = name
         relative_url = not module
 
         if kwargs.get('back', False) is True:
@@ -31,8 +39,7 @@ class BaitoRequest(Request):
             name = name[1:]
         else:
             module = module or self.module
-            if module:
-                kwargs['module'] = module
+            name = get_full_name(module, name)
 
         if value is not None:
             route = self.url_generator.mapper._routenames.get(name)
@@ -45,8 +52,7 @@ class BaitoRequest(Request):
             return self.url_generator(name, **kwargs)
         except GenerationException:
             if relative_url:
-                kwargs['module'] = None
-                return self.url_generator(name, **kwargs)
+                return self.url_generator(shortname, **kwargs)
             else:
                 raise
 
@@ -77,15 +83,14 @@ class App(object):
         self.on_route_not_found_handler = None
 
     def connect(self, name, rule, **kwargs):
-        kwargs['module'] = None
+        kwargs['_module'] = None
         self.url_map.connect(name, rule, **kwargs)
 
     def expose(self, rule, name=None, **kwargs):
         def decorator(func):
-            kwargs['endpoint'] = func
-            kwargs['module'] = None
-            rname = name or func.__name__
-            self.url_map.connect(rname, rule, **kwargs)
+            kwargs['_endpoint'] = func
+            kwargs['_module'] = None
+            self.url_map.connect(name or func.__name__, rule, **kwargs)
             return func
 
         return decorator
@@ -100,8 +105,8 @@ class App(object):
                 else:
                     raise HTTPNotFound()
 
-            endpoint = result.pop('endpoint')
-            request.module = result.pop('module', None)
+            endpoint = result.pop('_endpoint')
+            request.module = result.pop('_module', None)
             response = endpoint(request, **result)
             if isinstance(response, basestring):
                 response = self.Response(response)
@@ -179,10 +184,9 @@ class Module(object):
             else:
                 rrule = rule
 
-            kwargs['endpoint'] = func
-            kwargs['module'] = self.name
-            rname = name or func.__name__
-            self.rules.append((rname, rrule, kwargs))
+            kwargs['_endpoint'] = func
+            kwargs['_module'] = self.name
+            self.rules.append((get_full_name(self.name, name or func.__name__), rrule, kwargs))
             return func
 
         return decorator
