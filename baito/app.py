@@ -1,10 +1,10 @@
+import imp
+
 from routes.mapper import Mapper
 from routes.util import URLGenerator, GenerationException
 
 from webob import Request, Response
 from webob.exc import HTTPException, HTTPNotFound, HTTPFound
-
-from beaker.middleware import SessionMiddleware
 
 from wsgiref.simple_server import make_server
 from functools import wraps
@@ -78,9 +78,12 @@ class App(object):
         self.Response = Response
 
         self._renderer = None
-        self.session_opts = None
 
-        self.on_route_not_found_handler = None
+        self.conf = imp.new_module('baito.conf')
+
+    def load_conf(self, path):
+        self.conf.__file__ = path
+        execfile(path, self.conf.__dict__, self.conf.__dict__)
 
     def connect(self, name, rule, **kwargs):
         kwargs['_module'] = None
@@ -100,12 +103,13 @@ class App(object):
         try:
             result = self.url_map.match(None, environ)
             if not result:
-                if self.on_route_not_found_handler:
-                    return self.on_route_not_found_handler(environ, start_response)
-                else:
-                    raise HTTPNotFound()
+                raise HTTPNotFound()
 
-            endpoint = result.pop('_endpoint')
+            try:
+                endpoint = result.pop('_endpoint')
+            except KeyError:
+                return result.pop('_wsgi')(environ, start_response)
+
             request.module = result.pop('_module', None)
             response = endpoint(request, **result)
             if isinstance(response, basestring):
@@ -124,9 +128,6 @@ class App(object):
 
     def set_renderer(self, renderer):
         self._renderer = renderer
-
-    def on_route_not_found(self, wsgi_handler):
-        self.on_route_not_found_handler = wsgi_handler
 
     def render(self, request, name, result):
         result.setdefault('url_for', request.url_for)
@@ -155,13 +156,6 @@ class App(object):
             return inner2
 
         return inner
-
-    @property
-    def wsgi_app(self):
-        if self.session_opts:
-            return SessionMiddleware(self, self.session_opts)
-        else:
-            return self
 
     def add_module(self, module):
         if isinstance(module, str):
