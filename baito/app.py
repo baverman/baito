@@ -1,4 +1,5 @@
 import imp
+from urllib import urlencode
 
 from routes.mapper import Mapper
 from routes.util import URLGenerator, GenerationException
@@ -25,6 +26,23 @@ class BaitoRequest(Request):
         self.app = app
         self.url_generator = URLGenerator(app.url_map, environ)
         self.session = environ.get('beaker.session', None)
+
+    def modify_url(self, **kwargs):
+        params = self.GET.copy()
+        params.update(kwargs)
+
+        result = []
+        for k, values in params.dict_of_lists().iteritems():
+            for v in values:
+                if not isinstance(v, basestring):
+                    v = str(v)
+
+                if isinstance(v, unicode):
+                    v = v.encode('utf-8')
+
+                result.append((k, v))
+
+        return '?' + urlencode(result)
 
     def url_for(self, name, value=None, **kwargs):
         module, _, name = name.rpartition('.')
@@ -131,6 +149,7 @@ class App(object):
 
     def render(self, request, name, result):
         result.setdefault('url_for', request.url_for)
+        result.setdefault('modify_url', request.modify_url)
         result.setdefault('request', request)
         result.setdefault('get_flashed_messages', request.get_flashed_messages)
 
@@ -142,7 +161,7 @@ class App(object):
 
         return response
 
-    def renderer(self, name, **kwargs):
+    def render_to(self, name, **kwargs):
         def inner(func):
             @wraps(func)
             def inner2(request, *iargs, **ikwargs):
@@ -169,11 +188,11 @@ class Module(object):
         self.name = name
         self.rules = []
         self.renderers = []
-        self.prefix = prefix
+        self.prefix = prefix or '/'
 
     def expose(self, rule, name=None, **kwargs):
         def decorator(func):
-            if rule[0] != '/':
+            if self.prefix:
                 rrule = self.prefix + rule
             else:
                 rrule = rule
@@ -185,7 +204,7 @@ class Module(object):
 
         return decorator
 
-    def renderer(self, name, **kwargs):
+    def render_to(self, name, **kwargs):
         def inner(func):
             @wraps(func)
             def inner2(request, *iargs, **ikwargs):
